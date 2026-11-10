@@ -1,15 +1,14 @@
-"""Equity index monthly turn-of-month calendar drift.
-Long MNQ during the first 5 trading sessions of each calendar month, 09:30-15:00 CT.
-Trailing completed-session dollar range provides causal entry risk declaration;
-all entry risk values are true dollars per contract and stay within the $300 limit.
+"""Turn-of-month calendar drift on equity index micro futures.
+Long MNQ and MYM during the first 5 trading sessions of each calendar month,
+cash session 09:30-15:00 CT. Month rank uses session labels only; no price look-ahead.
 """
 import numpy as np
 import pandas as pd
 
 FAMILY = "equity-tom-monthly-drift"
-PARAMS = {"n_first_sessions": 5, "stop_dollars": 150.0,
+PARAMS = {"n_first_sessions": 5, "stop_dollars": 250,
           "entry_ct_sec": 34200, "exit_ct_sec": 54000}
-BASKET = ("MNQ",)
+BASKET = ("MNQ", "MYM")
 
 
 def entry_risk(panel):
