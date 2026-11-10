@@ -1,33 +1,37 @@
-"""Turn-of-month calendar drift on equity index micro futures.
-Long MNQ and MYM during the first 5 trading sessions of each calendar month,
-cash session 09:30-15:00 CT. Month rank uses session labels only; no price look-ahead.
-"""
+"""GC cash-settlement gap fade: overnight displacement from prior 15:00 CT cash close
+mean-reverts after Comex liquidity arrives. Each day's gap uses only prior completed session."""
 import numpy as np
-import pandas as pd
 
-FAMILY = "equity-tom-monthly-drift"
-PARAMS = {"n_first_sessions": 5, "stop_dollars": 250,
-          "entry_ct_sec": 34200, "exit_ct_sec": 54000}
-BASKET = ("MNQ", "MYM")
-
+FAMILY = "metals-cash-gap-reversion"
+PARAMS = {"gap_dollars": 8.0, "entry_ct_sec": 30600, "exit_ct_sec": 37800, "stop_dollars": 250}
+BASKET = ("GC",)
 
 def entry_risk(panel):
     return {s: np.full(len(df), PARAMS["stop_dollars"], dtype=float) for s, df in panel.items()}
 
-
 def signals(panel):
     targets = {}
     for symbol, df in panel.items():
-        signal = np.zeros(len(df), dtype=np.int64)
-        targets[symbol] = signal
-        if symbol not in BASKET:
-            continue
-        session_str = df.session.astype(str).to_numpy()
-        sec = df.ct_sec.to_numpy()
-        unique = pd.unique(session_str)
-        months = pd.to_datetime(unique).to_period("M")
-        ranks = pd.Series(range(len(unique)), index=unique).groupby(months).rank(method="first").to_dict()
-        eligible = {s for s, r in ranks.items() if r <= PARAMS["n_first_sessions"]}
-        mask = np.isin(session_str, list(eligible)) & (sec >= PARAMS["entry_ct_sec"]) & (sec < PARAMS["exit_ct_sec"])
-        signal[mask] = 1
+        out = np.zeros(len(df), dtype=np.int64)
+        if symbol in BASKET:
+            session = df.session.astype(str).to_numpy()
+            sec = df.ct_sec.to_numpy()
+            close = df.close.to_numpy()
+            prior_cash = {}
+            for day in np.unique(session):
+                idx = np.flatnonzero(session == day)
+                past = idx[sec[idx] < PARAMS["entry_ct_sec"]]
+                if len(past):
+                    prev = past[-1]
+                    # cash reference is final completed 15:00 CT bar from preceding session.
+                    old = np.flatnonzero(sec[:idx[0]] < PARAMS["exit_ct_sec"])
+                    if len(old):
+                        prior_cash[day] = close[old[-1]]
+            for day, ref in prior_cash.items():
+                idx = np.flatnonzero((session == day) & (sec >= PARAMS["entry_ct_sec"]) & (sec < PARAMS["exit_ct_sec"]))
+                if len(idx):
+                    gap = close[idx[0]] - ref
+                    if abs(gap) >= PARAMS["gap_dollars"]:
+                        out[idx] = -int(np.sign(gap))
+        targets[symbol] = out
     return targets
